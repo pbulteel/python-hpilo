@@ -1,4 +1,21 @@
-Version 4.0, 2016-09-23
+Version 4.2.1, 2018-04-13
+* mod_global_settings would always try to set a console_capture_port, which is
+  horribly wrong
+
+Version 4.2, 2018-04-10
+! Backwards compatibility warning
+  The output of get_embedded_health changed: the network interfaces are now
+  returned as a list instead of a dict that's keyd on the port name, as port
+  names are not unique. This will make iLO interfaces and interfaces on
+  non-primary nic's show up in the output.
+* call_delayed now handles exceptions (such as those caused by calling
+  unsupported functions) better
+* Support for more new methods and attributes
+
+Version 4.1, 2018-01-21
+* Fix the firmware updater
+
+Version 4.0, 2017-09-23
 ! Backwards compatibility warning
   4.0 marks the end of our support for Python 2.4 and 2.5. The oldest OS we
   support is now RHEL 6, and it uses python 2.6.
@@ -140,7 +157,7 @@ Version 2.4.1, 2013-11-06
 
 Version 2.4, 2013-10-27
 
-* Much better ipv6 support 
+* Much better ipv6 support
 
 Version 2.3, 2013-10-11
 
