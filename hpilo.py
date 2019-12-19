@@ -1,7 +1,7 @@
 # (c) 2011-2018 Dennis Kaarsemaker <dennis@kaarsemaker.net>
 # see COPYING for license details
 
-__version__ = "4.2.1"
+__version__ = "4.3"
 
 import codecs
 import io
@@ -158,6 +158,9 @@ class IloNotConfigured(IloError):
 class IloWarning(Warning):
     pass
 
+class IloXMLWarning(Warning):
+    pass
+
 class IloTestWarning(Warning):
     pass
 
@@ -176,7 +179,7 @@ class Ilo(object):
     HTTP_UPLOAD_HEADER = b"POST /cgi-bin/uploadRibclFiles HTTP/1.1\r\nHost: localhost\r\nConnection: Close\r\nContent-Length: %d\r\nContent-Type: multipart/form-data; boundary=%s\r\n\r\n"
     BLOCK_SIZE = 64 * 1024
 
-    def __init__(self, hostname, login=None, password=None, timeout=60, port=443, protocol=None, delayed=False, ssl_verify=False, ssl_context=None):
+    def __init__(self, hostname, login=None, password=None, timeout=60, port=443, protocol=None, delayed=False, ssl_verify=False, ssl_context=None, ssl_version=None):
         self.hostname = hostname
         self.login    = login or 'Administrator'
         self.password = password or 'Password'
@@ -392,10 +395,14 @@ class Ilo(object):
             raise IloCommunicationError("Unable to resolve %s" % self.hostname)
 
         try:
-            if self.ssl_context:
-                return self.ssl_context.wrap_socket(sock, server_hostname=self.hostname)
-            else:
-                return ssl.wrap_socket(sock, ssl_version=ssl.PROTOCOL_TLS)
+            if not self.ssl_context:
+                self.ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS)
+                # Even more sadly, some iLOs are still using RC4-SHA
+                # which was dropped from the default cipher suite in
+                # Python 2.7.10 and Python 3.4.4. Add it back here :(
+                self.ssl_context.set_ciphers("RC4-SHA:" + ssl._DEFAULT_CIPHERS)
+            return self.ssl_context.wrap_socket(
+                sock, server_hostname=self.hostname)
         except ssl.SSLError as exc:
             raise IloCommunicationError("Cannot establish ssl session with %s:%d: %s" % (self.hostname, self.port, str(exc)))
 
@@ -547,19 +554,32 @@ class Ilo(object):
         This is a collection of workarounds and kludges to try and fix up the
         data so ElementTree has a chance to parse it correctly"""
 
+        warnings.warn("iLO returned malformed XML, attempting to fix. Please contact HP to report a bug", IloXMLWarning)
+
         if '<RIBCL VERSION="2.22"/>' in data:
             data = data.replace('<RIBCL VERSION="2.22"/>', '<RIBCL VERSION="2.22">')
-        if re.search(r'''=+ *[^"'\n=]''', data):
-            data = re.sub(r'''= *([^"'\n]+?) *\n''', r'="\1"', data)
-        if re.search('[a-zA-Z0-9]""/>', data):
-            def fix(line):
-                if re.search('[a-zA-Z0-9]""/>', line):
-                    line = '"'.join([x.replace('"', '&quot;') for x in line.split('""')])
-                return line
-            data = '\n'.join([fix(line) for line in data.split('\n')])
-        if '" "/>' in data:
-            data = data.replace('" "/>', '&quot; " />')
-        return data
+        # Quite a few unescaped quotation mark bugs keep appearing. Let's try
+        # to fix up the XML by replacing the last occurence of a quotation mark
+        # *before* the position of the error.
+        #
+        # Definitely not an optimal algorithm, but this is not a hot path.
+        # Let's favour correctness over hacks.
+        last_position = None
+        position = (0, 0)
+        while position != last_position:
+            last_position = position
+            try:
+                return etree.fromstring(data)
+            except etree.ParseError as e:
+                position = e.position
+                x = position[0]-1
+                y = position[1]
+                lines = data.splitlines()
+                y = lines[x].rfind('"', 0, y)
+                lines[x] = lines[x][:y] + '&quot;' + lines[x][y+1:]
+                data = '\n'.join(lines)
+        # Couldn't fix it :(
+        raise
 
     def _parse_message(self, data, include_inform=False):
         """Parse iLO responses into Element instances and remove useless messages"""
@@ -569,7 +589,7 @@ class Ilo(object):
         try:
             message = etree.fromstring(data)
         except etree.ParseError:
-            message = etree.fromstring(self._attempt_to_fix_broken_xml(data))
+            message = self._attempt_to_fix_broken_xml(data)
         if message.tag == 'RIBCL':
             for child in message:
                 if child.tag == 'INFORM':
@@ -890,7 +910,8 @@ class Ilo(object):
 
     def delete_sso_server(self, index):
         """Delete an SSO server by index"""
-        return self._control_tag('SSO_INFO', 'DELETE_SERVER', index)
+        return self._control_tag('SSO_INFO', 'DELETE_SERVER',
+                                 attrib={'INDEX': str(index)})
 
     def delete_user(self, user_login):
         """Delete the specified user from the ilo"""
@@ -1404,7 +1425,7 @@ class Ilo(object):
             if vars[var] is not None:
                 elements.append(etree.Element(var.upper(), VALUE=vars.pop(var)))
         for var in vars:
-            if vars[val] is not None:
+            if vars[var] is not None:
                 elements.append(etree.Element('ESKM_' + var.upper(), VALUE=vars[var]))
         return self._control_tag('RIB_INFO', 'MOD_ENCRYPT_SETTINGS', elements=elements)
 
@@ -1466,7 +1487,7 @@ class Ilo(object):
            many settings only work on certain iLO models and firmware versions"""
         vars = dict(locals())
         del vars['self']
-        dont_map = ['authentication_failure_logging']
+        dont_map = ['authentication_failure_logging', 'authentication_failures_before_delay', 'serial_cli_speed']
         elements = [etree.Element(x.upper(), VALUE=str({True: 'Yes', False: 'No'}.get(vars[x], vars[x])))
                     for x in vars if vars[x] is not None and x not in dont_map] + \
                    [etree.Element(x.upper(), VALUE=str(vars[x]))
@@ -1540,6 +1561,7 @@ class Ilo(object):
             dir_kerberos_enabled=None,dir_kerberos_realm=None,
             dir_kerberos_kdc_address=None,dir_kerberos_kdc_port=None,
             dir_kerberos_keytab=None,
+            dir_generic_ldap_enabled=None,
             dir_grpacct1_name=None,dir_grpacct1_sid=None,
             dir_grpacct1_priv=None,dir_grpacct2_name=None,
             dir_grpacct2_sid=None,dir_grpacct2_priv=None,
