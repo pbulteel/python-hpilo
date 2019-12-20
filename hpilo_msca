@@ -2,6 +2,10 @@
 #
 # (c) 2011-2016 Dennis Kaarsemaker <dennis@kaarsemaker.net>
 # see COPYING for license details
+# Modified: Patrick Bulteel <patrick.bulteel@telefonica.com>
+# Date: 2019-12-20
+# Changelog: Added ability to call a Microsoft CA endpoint for signing of CSR.
+#
 
 try:
     import ConfigParser
