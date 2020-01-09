@@ -184,7 +184,13 @@ def sign_certificates(hosts, ca_server, login, password, opts, ca_login, ca_pass
 
         print("(2/5) Retrieving certificate signing request")
         if fw_version['management_processor'].lower() == 'ilo2':
-            csr = ilo.certificate_signing_request()
+            try:
+                csr = ilo.certificate_signing_request()
+            except hpilo.IloError:
+                # ILO2 doesn't give "IloGeneratingCSR" 
+                print("Certificate request is being generated, trying again later")
+                todo.append(hostname)
+                continue
         else:
             params = msca.csr_params.copy()
             cn = '%s.%s' % (network_settings['dns_name'], network_settings['domain_name'])
@@ -211,7 +217,12 @@ def sign_certificates(hosts, ca_server, login, password, opts, ca_login, ca_pass
             continue    
 
         print("(5/5) Resetting iLO")
-        ilo.reset_rib()
+        try:
+            ilo.reset_rib()
+        except hpilo.IloCommunicationError:
+            print("ILO communication failure. Trying again later.")
+            todo.append(hostname)
+        
     return todo
 
 class MSCA(object):
@@ -246,14 +257,14 @@ class MSCA(object):
         hostname = network_settings['dns_name']
         fqdn = '%s.%s' % (network_settings['dns_name'], network_settings['domain_name'])
         ip = network_settings['ip_address']
-        altnames = 'DNS:%s,DNS:%s,IP:%s' % (fqdn, hostname, ip)
+        altnames = 'san:dns=%s&dns=%s&ip=%s' % (fqdn, hostname, ip)
 
         csr_path = os.path.join(self.ca_path, 'certs', fqdn + '.csr')
         crt_path = os.path.join(self.ca_path, 'certs', fqdn + '.crt')
         fd = open(csr_path, 'w')
         fd.write(csr)
         fd.close()
-        # Send the CSR to the MSCA and uses the WebServer template for the cert.
+        # Send the CSR to the MSCA and uses the WebServer template for the cert - include altnames.
         cert = self.msca_server.get_cert(csr, "WebServer", encoding="b64", attributes=altnames)
         
         fd = open(crt_path, 'w')
