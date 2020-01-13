@@ -17,6 +17,10 @@ path = ~/.hpilo_ca
 # locality = Lelystad
 # organization = Kaarsemaker.net
 # organizational_unit = Sysadmin
+server = your-msca.example.com
+# This user should have permissions in AD to sign and retrieve the cert
+ca_username = exampleUser
+ca_password = examplePassword
 
 [elasticsearch]
 # host = elasticsearch.example.com
