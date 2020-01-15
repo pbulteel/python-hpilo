@@ -134,7 +134,7 @@ def sign_certificates(hosts, ca_server, login, password, opts, ca_login, ca_pass
         
     """
     if ca_server:
-        msca_server = Certsrv(ca_server, ca_login, ca_password, auth_method='ntlm', cafile='/etc/ssl/certs/O2WIFI_Root_CA.pem')
+        msca_server = Certsrv(ca_server, ca_login, ca_password, auth_method='ntlm')
 
     todo = []
     for hostname in hosts:
