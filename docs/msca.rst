@@ -30,6 +30,7 @@ When your CA is set up, you can start signing certificates. :file:`hpilo_msca`
 will check several things:
 
  * Firmware is upgraded if necessary
+ * DHCP is disabled if enabled as this doesn't allow for FQDN to be set
  * The hostname is set to the name you use to connect to it, if needed
  * iLO2 is configured to use FQDN's for certificate signing requests
 
@@ -37,8 +38,9 @@ It will then download the certificate signing request, sign it and upload the
 signed certificate. Here's an example of it at work::
 
   $ ./hpilo_ca sign example-server.int.kaarsemaker.net
-  (1/5) Checking certificate config of example-server.int.kaarsemaker.net
-  (2/5) Retrieving certificate signing request
-  (3/5) Signing certificate
-  (4/5) Uploading certificate
-  (5/5) Resetting iLO
+  (1/6) Checking DHCP settings on example-server.int.kaarsemaker.net
+  (2/6) Checking certificate config of example-server.int.kaarsemaker.net
+  (3/6) Retrieving certificate signing request
+  (4/6) Signing certificate
+  (5/6) Uploading certificate
+  (6/6) Resetting iLO
